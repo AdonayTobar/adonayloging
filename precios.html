@@ -1,0 +1,449 @@
+
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catálogo de Precios Dinámico</title>
+    <!-- Carga Tailwind CSS para un diseño moderno y responsive -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fuente Inter de Google -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* Definición del nuevo color azul corporativo */
+        .color-galvanissa { color: #2c5282; }
+        .bg-color-galvanissa { background-color: #2c5282; }
+
+        /* Estilos base del diseño claro y profesional */
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #f3f4f6; /* Fondo gris claro */
+        }
+        /* Contenedor de la tabla con altura máxima y scroll */
+        .table-container { max-height: 80vh; overflow-y: auto; }
+        .sort-icon { display: inline-block; margin-left: 0.5rem; }
+        
+        /* Estilo minimalista y limpio para la cabecera de la tabla */
+        #tableHeader {
+            background-color: #f9fafb; /* Fondo muy claro para la cabecera */
+        }
+
+        /* ---------------------------------------------------- */
+        /* ESTILOS DE RESPONSIVIDAD (SOLO EN MOBILE) */
+        /* ---------------------------------------------------- */
+        
+        /* La tarjeta móvil ahora se oculta *siempre* por defecto
+           y se muestra solo en pantallas pequeñas mediante media queries. */
+        .mobile-card {
+            display: none; 
+        }
+
+        /* Oculta la tabla tradicional en pantallas pequeñas */
+        @media (max-width: 639px) {
+            #productTable {
+                display: none;
+            }
+            /* Aseguramos que el contenedor de tarjetas se muestre en móvil */
+            #mobileList {
+                 display: block !important; /* Agregado para forzar visibilidad */
+                 /* Estira la lista móvil para que rompa el padding del div padre */
+                 margin: 0 -1.5rem; /* El div padre tiene p-6 (1.5rem). Restamos este margen */
+            }
+            .mobile-card {
+                display: block; /* Muestra las tarjetas */
+                border-radius: 0; /* Quitamos el borde redondeado para que se vea como una lista */
+            }
+            /* Estilo específico para la tarjeta móvil */
+            .mobile-card {
+                position: relative; 
+            }
+        }
+        
+        /* Oculta las tarjetas en pantallas grandes */
+        @media (min-width: 640px) {
+             #mobileList {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Se mantiene px-0 para que el contenido de la lista móvil se pegue al borde y las tarjetas puedan usar el 100% -->
+<div class="max-w-6xl mx-auto px-0 py-4 md:p-8">
+
+    <!-- Tarjeta Principal del Buscador. Aquí es donde está el p-6 que afecta a todo el contenido,
+         pero que vamos a anular en la lista móvil. -->
+    <div class="bg-white rounded-xl shadow-xl p-6 text-gray-900">
+        <!-- Título principal con el color #2c5282 -->
+        <h1 class="text-3xl font-extrabold color-galvanissa mb-2">Catálogo de Productos Galvanissa</h1>
+        
+        <!-- Aclaración de precios simplificada y sin color rojo -->
+        <p class="text-sm text-gray-700 mb-6 font-semibold">
+            Los precios aquí mostrados podrían no estar actualizados. Por favor, verifique siempre los precios finales con el sistema oficial.
+        </p>
+
+        <!-- Controles de Búsqueda -->
+        <div class="mb-6 flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-4">
+            <input type="text" id="searchInput" placeholder="Buscar por Código o Descripción..."
+                   class="flex-1 p-3 border border-gray-300 bg-white text-gray-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2c5282] transition duration-150 shadow-sm">
+        </div>
+
+        <!-- Indicador de Carga/Mensajes -->
+        <div id="statusMessage" class="mb-4 text-lg font-medium text-center p-3 rounded-lg bg-yellow-100 text-yellow-800 hidden">
+            Cargando datos...
+        </div>
+
+        <!-- Contador de Resultados (Mantiene el p-6 del padre) -->
+        <div id="resultsCount" class="mb-4 text-gray-600 text-center text-sm font-semibold"></div>
+        
+        <!-- Contenedor de la Tabla (Desktop) / Lista (Mobile) -->
+        <!-- La tabla de Desktop sigue usando el p-6 del div padre para verse centrada y no pegada a los bordes -->
+        <div class="table-container shadow-lg rounded-lg border border-gray-200">
+            <!-- ESTRUCTURA DE TABLA (VISIBLE EN DESKTOP) -->
+            <table id="productTable" class="min-w-full divide-y divide-gray-200">
+                <thead class="sticky top-0 shadow-sm" style="z-index: 1;">
+                    <tr id="tableHeader">
+                        <!-- Las cabeceras se generarán aquí con JavaScript -->
+                    </tr>
+                </thead>
+                <tbody id="productTableBody" class="divide-y divide-gray-200 text-sm">
+                    <!-- Los datos de los productos se inyectarán aquí (Desktop) -->
+                    <tr id="initialLoadingRow"><td colspan="4" class="p-4 text-center text-gray-400">Iniciando carga de datos...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- ESTRUCTURA DE LISTA DE TARJETAS (VISIBLE EN MOBILE) -->
+        <!-- Esta lista usa un margen negativo (-mx-6 en CSS) para anular el p-6 del contenedor principal. -->
+        <div id="mobileList" class="space-y-px pt-4"> 
+             <!-- Los datos de los productos se inyectarán aquí (Mobile) -->
+        </div>
+
+    </div>
+</div>
+
+<!-- LIBRERÍAS DE JAVASCRIPT -->
+<!-- PapaParse: Para leer el CSV de forma eficiente -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+<script>
+    // =================================================================================
+    // CONFIGURACIÓN: ¡TU URL CSV DE GOOGLE SHEETS!
+    // =================================================================================
+    const GOOGLE_SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT8XYpMQEshg2eZghit9nFFjIiRz8_G_PHnlOlYWmsX9kzrN1CH7v_FQE0ciZnU8Va4AZofLfJvm4KF/pub?gid=0&single=true&output=csv";
+    
+    // Variables de estado
+    let allProducts = []; 
+    let currentSort = { column: null, direction: 'asc' }; 
+    let columnHeaders = []; // Almacena los nombres de las columnas
+
+    // Elementos del DOM
+    const statusMessage = document.getElementById('statusMessage');
+    const tableHeader = document.getElementById('tableHeader');
+    const productTableBody = document.getElementById('productTableBody');
+    const mobileList = document.getElementById('mobileList'); // Nuevo elemento para móvil
+    const searchInput = document.getElementById('searchInput');
+    const resultsCount = document.getElementById('resultsCount');
+
+    // Muestra u oculta el mensaje de estado
+    function setStatus(message, isError = false) {
+        statusMessage.textContent = message;
+        // Paleta clara para mensajes de estado
+        statusMessage.className = `mb-4 text-lg font-medium text-center p-3 rounded-lg ${isError ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`;
+        statusMessage.classList.remove('hidden');
+    }
+
+    // Oculta la fila de carga inicial
+    function hideInitialRow() {
+        const row = document.getElementById('initialLoadingRow');
+        if(row) row.remove();
+    }
+
+    // =================================================================================
+    // FUNCIÓN UTILITARIA: DEBOUNCE (ANTI-REBOTE)
+    // Evita que una función se ejecute demasiadas veces seguidas (ej. al escribir).
+    // =================================================================================
+    function debounce(func, delay) {
+        let timeoutId;
+        return function(...args) {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+                func.apply(this, args);
+            }, delay);
+        };
+    }
+
+    // =================================================================================
+    // 1. CARGA Y PROCESAMIENTO DE DATOS CSV
+    // =================================================================================
+    async function loadData() {
+        setStatus("Conectando con Google Sheets...");
+
+        try {
+            Papa.parse(GOOGLE_SHEETS_CSV_URL, {
+                download: true,
+                header: true, 
+                skipEmptyLines: true,
+                complete: function(results) {
+                    if (results.data.length === 0 || results.errors.length > 0) {
+                        const errorMsg = results.errors.length > 0 ? results.errors[0].message : "No se encontraron datos. Revisa la URL y los permisos.";
+                        setStatus("Error al procesar datos: " + errorMsg, true);
+                        return;
+                    }
+                    
+                    allProducts = results.data.map(item => {
+                        const normalizedItem = {};
+                        for (const key in item) {
+                            normalizedItem[key.trim()] = item[key] ? item[key].trim() : '';
+                        }
+                            return normalizedItem;
+                    });
+
+                    statusMessage.classList.add('hidden');
+                    hideInitialRow();
+
+                    // Asegurarse de que haya al menos un producto para obtener las claves
+                    if (allProducts.length > 0) {
+                        columnHeaders = Object.keys(allProducts[0]); // Almacena las cabeceras
+                        createHeader(columnHeaders);
+                        filterAndRenderProducts();
+                    } else {
+                        setStatus("Datos cargados, pero el catálogo está vacío.", true);
+                    }
+                },
+                error: function(error) {
+                    setStatus("Error de red al cargar el archivo CSV. Asegúrate de que la URL sea pública.", true);
+                    console.error("PapaParse Error:", error);
+                }
+            });
+
+        } catch (e) {
+            setStatus("Ocurrió un error inesperado al iniciar la carga.", true);
+            console.error("Fetch/Load Error:", e);
+        }
+    }
+
+
+    // =================================================================================
+    // 2. RENDERING Y FILTRADO
+    // =================================================================================
+
+    // Crea las cabeceras de la tabla a partir de las claves del objeto
+    function createHeader(columns) {
+        tableHeader.innerHTML = ''; 
+        columns.forEach(column => {
+            const th = document.createElement('th');
+            // Clases para tema claro: texto con color #2c5282, fondo gris muy claro
+            th.className = 'px-6 py-3 text-left text-xs font-bold color-galvanissa uppercase cursor-pointer bg-gray-50 hover:bg-gray-100 transition duration-150 border-b border-gray-200';
+            th.textContent = column;
+            th.setAttribute('data-column', column);
+            th.addEventListener('click', () => sortAndRender(column));
+            tableHeader.appendChild(th);
+        });
+    }
+
+    // Función auxiliar para formatear valores
+    function formatCellValue(key, value, cell) {
+        cell.className = 'px-6 py-3 whitespace-nowrap text-gray-700';
+        let displayValue = value;
+
+        // Formato especial para la columna 'PRECIO'
+        if (key.toUpperCase().includes('PRECIO') && !isNaN(parseFloat(value))) {
+            displayValue = `$${parseFloat(value).toLocaleString('es-ES', { minimumFractionDigits: 2 })}`;
+            // Color #2c5282 para destacar el precio
+            cell.classList.add('font-extrabold', 'text-right', 'color-galvanissa'); 
+        } else if (key.toUpperCase().includes('CODIGO')) {
+            cell.classList.add('font-medium', 'text-gray-900');
+        } else {
+            cell.classList.add('text-left');
+        }
+        
+        cell.textContent = displayValue;
+        return displayValue; // Retorna el valor formateado
+    }
+
+
+    // Renderiza el cuerpo de la tabla (Desktop) y las tarjetas (Mobile)
+    function renderTable(products) {
+        productTableBody.innerHTML = '';
+        mobileList.innerHTML = ''; // Limpia la lista móvil
+
+        // Detectar índices de columnas clave
+        const keyIndices = {
+            codigo: columnHeaders.findIndex(h => h.toUpperCase().includes('CODIGO')),
+            descripcion: columnHeaders.findIndex(h => h.toUpperCase().includes('DESCRIPCION')),
+            precio: columnHeaders.findIndex(h => h.toUpperCase().includes('PRECIO')),
+        };
+
+
+        if (products.length === 0) {
+            const colspan = tableHeader.children.length > 0 ? tableHeader.children.length : 4;
+            productTableBody.innerHTML = `<tr><td colspan="${colspan}" class="p-4 text-center text-gray-500">No se encontraron productos que coincidan con la búsqueda.</td></tr>`;
+            mobileList.innerHTML = '<p class="p-4 text-center text-gray-500">No se encontraron productos que coincidan con la búsqueda.</p>';
+            resultsCount.textContent = "0 resultados.";
+            return;
+        }
+
+        products.forEach((product, index) => {
+            // ------------------------------------
+            // 1. Renderizado de Fila de Tabla (Desktop)
+            // ------------------------------------
+            const row = productTableBody.insertRow();
+            // Alternar filas: blanco y gris claro
+            row.className = index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-100 hover:bg-gray-200';
+
+            // ------------------------------------
+            // 2. Renderizado de Tarjeta (Mobile)
+            // ------------------------------------
+            const card = document.createElement('div');
+            // Clase de la tarjeta: ahora usa p-2 para el relleno interno, y ya no usa mx-2 ni rounded-lg
+            // Usamos shadow-sm para que se vea el borde entre tarjetas que no son del mismo color
+            card.className = 'mobile-card p-2 shadow-sm ' + (index % 2 === 0 ? 'bg-white' : 'bg-gray-100');
+            
+            let firstLineHTML = ''; // Contendrá CÓDIGO y PRECIO alineados
+            let descriptionHTML = ''; // Contendrá la Descripción
+
+            // Iterar sobre las claves del producto para crear las celdas/campos
+            columnHeaders.forEach((key, colIndex) => {
+                const value = product[key];
+                const cell = row.insertCell(); // Insertar la celda en la fila de desktop
+
+                // Formatear el valor (Desktop)
+                const displayValue = formatCellValue(key, value, cell); 
+                
+                // === LÓGICA DE RENDERIZADO MÓVIL ===
+
+                if (colIndex === keyIndices.codigo) {
+                    // 1. CÓDIGO
+                    firstLineHTML += `
+                        <div class="flex flex-col flex-shrink">
+                            <span class="font-semibold text-xs text-gray-500">CÓDIGO</span>
+                            <span class="text-base text-gray-900 font-bold">${displayValue}</span>
+                        </div>
+                    `;
+                } else if (colIndex === keyIndices.precio) {
+                    // 2. PRECIO (Flotando a la derecha en la misma línea)
+                    firstLineHTML += `
+                        <div class="flex-shrink-0 text-right">
+                            <span class="text-lg font-extrabold color-galvanissa">${displayValue}</span>
+                        </div>
+                    `;
+                } else if (colIndex === keyIndices.descripcion) {
+                    // 3. DESCRIPCIÓN (Solo Valor, sin etiqueta)
+                    descriptionHTML += `
+                        <div class="flex flex-col pt-1">
+                            <span class="text-sm text-gray-800">${displayValue}</span>
+                        </div>
+                    `;
+                }
+                // 4. RESTO de columnas omitidas en móvil.
+            });
+
+            // Ensamblar la tarjeta móvil: Primera Línea (Código + Precio) + Descripción
+            card.innerHTML = `
+                <div class="flex justify-between items-start">
+                    ${firstLineHTML}
+                </div>
+                ${descriptionHTML}
+            `;
+            mobileList.appendChild(card);
+        });
+
+        resultsCount.textContent = `${products.length} resultados encontrados.`;
+        updateSortIcons();
+    }
+
+    // Filtra los productos basándose en el texto de búsqueda
+    function filterAndRenderProducts() {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        
+        let filteredProducts = allProducts;
+
+        if (searchTerm) {
+            // Dividir el término de búsqueda en palabras clave
+            const keywords = searchTerm.split(/\s+/).filter(k => k.length > 0); 
+            
+            if (keywords.length > 0) {
+                filteredProducts = allProducts.filter(product => {
+                    // Concatenar todos los valores de las columnas en un solo string para buscar
+                    const productText = Object.values(product).join(' ').toLowerCase();
+
+                    // Comprobar que TODAS las palabras clave estén presentes en el texto del producto
+                    return keywords.every(keyword => productText.includes(keyword));
+                });
+            }
+        }
+
+        if (currentSort.column) {
+            sortProducts(filteredProducts, currentSort.column, currentSort.direction);
+        }
+
+        renderTable(filteredProducts);
+    }
+
+    // =================================================================================
+    // 3. ORDENACIÓN (SORTING)
+    // =================================================================================
+
+    function sortAndRender(column) {
+        let direction = 'asc';
+        if (currentSort.column === column) {
+            direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+        }
+        
+        currentSort = { column, direction };
+        filterAndRenderProducts(); // Vuelve a filtrar y renderizar con el nuevo orden
+    }
+    
+    function sortProducts(products, column, direction) {
+        products.sort((a, b) => {
+            let valA = a[column];
+            let valB = b[column];
+            
+            const numA = parseFloat(valA);
+            const numB = parseFloat(valB);
+
+            let comparison = 0;
+            if (!isNaN(numA) && !isNaN(numB)) {
+                // Ordenación numérica
+                comparison = numA - numB;
+            } else {
+                // Ordenación alfabética
+                comparison = String(valA).localeCompare(String(valB));
+            }
+
+            return direction === 'asc' ? comparison : -comparison;
+        });
+    }
+
+    function updateSortIcons() {
+        const headers = tableHeader.querySelectorAll('th');
+        headers.forEach(th => {
+            const icon = th.querySelector('.sort-icon');
+            if (icon) icon.remove();
+
+            if (th.getAttribute('data-column') === currentSort.column) {
+                const span = document.createElement('span');
+                span.className = 'sort-icon';
+                // Iconos Unicode para indicar la dirección
+                span.innerHTML = currentSort.direction === 'asc' ? '&#x25B2;' : '&#x25BC;'; 
+                th.appendChild(span);
+            }
+        });
+    }
+
+
+    // =================================================================================
+    // 4. INICIALIZACIÓN DE EVENTOS
+    // =================================================================================
+    
+    // Aplicar debounce a la función de filtrado
+    const debouncedFilter = debounce(filterAndRenderProducts, 300);
+
+    searchInput.addEventListener('input', debouncedFilter);
+
+    document.addEventListener('DOMContentLoaded', loadData);
+
+</script>
+</body>
+</html>
